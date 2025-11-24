@@ -1,5 +1,6 @@
 import streamlit as st
 
+
 def apply_custom_css():
     """Apply custom CSS styling"""
     st.markdown("""
@@ -19,6 +20,7 @@ def apply_custom_css():
     }
     </style>
     """, unsafe_allow_html=True)
+
 
 def setup_page_config():
     """Configure the page settings"""

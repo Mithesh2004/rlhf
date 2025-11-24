@@ -1,6 +1,6 @@
 import streamlit as st
 from ..utils.session_state import get_session_state, set_session_state
-from ..utils.conversation_manager import add_message, save_conversations
+from ..utils.api_client import get_api_client
 
 
 def apply_chat_css():
@@ -38,59 +38,11 @@ def apply_chat_css():
         width: 100%;
         text-align: center;
         margin: 10px 0;
-        color: #666;
-        font-style: italic;
-    }
-    .timestamp {
-        font-size: 0.8em;
-        color: #666;
-        margin-top: 5px;
-    }
-    .rating-container {
-        margin-top: 0;
-        display: flex;
-        gap: 5px;
-        padding-left: 10px;
-        align-items: center;
-    }
-    .rating-button {
-        display: inline-block;
-    }
-    .rating-button button {
-        background: none;
-        border: none;
-        padding: 0;
-        font-size: 1.2em;
-        cursor: pointer;
-        opacity: 0.7;
-        transition: opacity 0.2s;
-    }
-    .rating-button button:hover {
-        opacity: 1;
-    }
-    .rating-button button.selected {
-        opacity: 1;
-        color: #007AFF;
-    }
-    .priority-label {
-        font-size: 0.9em;
-        padding: 4px 8px;
-        border-radius: 4px;
-        background: #f0f0f0;
-        color: #333;
+        padding: 10px;
+        background-color: #e8f4f8;
+        border-radius: 5px;
+        color: #1a73e8;
         font-weight: 500;
-    }
-    .priority-high {
-        background: #ffebee;
-        color: #c62828;
-    }
-    .priority-medium {
-        background: #fff3e0;
-        color: #ef6c00;
-    }
-    .priority-low {
-        background: #e8f5e9;
-        color: #2e7d32;
     }
     .conversation-ended {
         background-color: #fff3cd;
@@ -100,12 +52,22 @@ def apply_chat_css():
         margin: 20px 0;
         text-align: center;
     }
+    .diagnosis-ready-banner {
+        background-color: #d4edda;
+        border: 2px solid #28a745;
+        border-radius: 10px;
+        padding: 15px;
+        margin: 20px 0;
+        text-align: center;
+        font-size: 16px;
+        font-weight: 500;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 
 def count_ai_messages(messages):
-    """Count the number of AI messages in the conversation"""
+    """Count the number of AI messages (excluding system messages)"""
     count = 0
     for msg in messages:
         if isinstance(msg, dict):
@@ -117,10 +79,10 @@ def count_ai_messages(messages):
     return count
 
 
-def render_message(sender, content, message_index=None):
+def render_message(sender, content, message_index=None, conv=None):
     """Render a chat message with the appropriate styling"""
     if sender == "System":
-        st.markdown(f'<div class="system-message">{content}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="system-message">🤖 {content}</div>', unsafe_allow_html=True)
     else:
         css_class = "doctor-message" if sender == "Doctor" else "ai-message"
         st.markdown(f"""
@@ -132,112 +94,197 @@ def render_message(sender, content, message_index=None):
         """, unsafe_allow_html=True)
         
         # Add rating and priority buttons only for AI messages
-        if sender == "AI" and message_index is not None:
-            conversations = get_session_state('conversations')
-            active_id = get_session_state('active_conv_id')
-            current_conv = next((c for c in conversations if c['id'] == active_id), None)
+        if sender == "AI" and message_index is not None and conv is not None:
+            doctor_name = get_session_state('doctor_name')
+            api_client = get_api_client()
             
-            if current_conv:
-                # Get current rating and priority from message if it exists
-                message_data = current_conv['messages'][message_index]
-                if isinstance(message_data, dict):
-                    current_rating = message_data.get('rating')
-                    current_priority = message_data.get('priority')
+            message_data = conv['messages'][message_index]
+            if isinstance(message_data, dict):
+                current_rating = message_data.get('rating')
+                current_priority = message_data.get('priority')
+            else:
+                current_rating = None
+                current_priority = None
+            
+            # Count total AI messages for priority range
+            total_ai_messages = count_ai_messages(conv.get('messages', []))
+            
+            # Get all assigned priorities
+            assigned_priorities = set()
+            for msg in conv.get('messages', []):
+                if isinstance(msg, dict) and msg.get('sender') == 'AI':
+                    if msg.get('priority') is not None:
+                        assigned_priorities.add(msg.get('priority'))
+            
+            col1, col2, col3 = st.columns([1, 1, 6])
+            
+            with col1:
+                if st.button("👍🏼", key=f"relevant_{message_index}",
+                           help="Relevant", use_container_width=True,
+                           type="primary" if current_rating == "relevant" else "secondary"):
+                    if api_client.update_message_rating(doctor_name, conv['id'], message_index, "relevant"):
+                        st.rerun()
+            
+            with col2:
+                if st.button("👎🏼", key=f"irrelevant_{message_index}",
+                           help="Irrelevant/Wrong Direction", use_container_width=True,
+                           type="primary" if current_rating == "irrelevant" else "secondary"):
+                    if api_client.update_message_rating(doctor_name, conv['id'], message_index, "irrelevant"):
+                        st.rerun()
+                    
+            with col3:
+                # Priority selector with popover
+                if current_priority is not None:
+                    button_label = f"⭐ Priority: {current_priority}"
                 else:
-                    # Convert string message to dict if needed
-                    current_conv['messages'][message_index] = {
-                        'content': message_data,
-                        'sender': sender,
-                        'rating': None,
-                        'priority': None
-                    }
-                    current_rating = None
-                    current_priority = None
+                    button_label = "⚠️ Set Priority"
                 
-                col1, col2, col3 = st.columns([1, 1, 6])
-                
-                with col1:
-                    if st.button("👍🏼", key=f"relevant_{message_index}",
-                               help="Relevant", use_container_width=True,
-                               type="primary" if current_rating == "relevant" else "secondary"):
-                        current_conv['messages'][message_index]['rating'] = "relevant"
-                        save_conversations(conversations)
-                        st.rerun()
-                
-                with col2:
-                    if st.button("👎🏼", key=f"irrelevant_{message_index}",
-                               help="Irrelevant/Wrong Direction", use_container_width=True,
-                               type="primary" if current_rating == "irrelevant" else "secondary"):
-                        current_conv['messages'][message_index]['rating'] = "irrelevant"
-                        save_conversations(conversations)
-                        st.rerun()
-                        
-                with col3:
-                    # Priority selector with popover
-                    priority_display = {
-                        'high': ('🔴 High Priority', 'priority-high'),
-                        'medium': ('🟡 Medium Priority', 'priority-medium'),
-                        'low': ('🟢 Low Priority', 'priority-low')
-                    }
+                with st.popover(button_label, use_container_width=False):
+                    st.markdown("**Set Priority Rank**")
+                    st.caption(f"Rank 1 = Highest Priority, Rank {total_ai_messages} = Lowest Priority")
                     
-                    # Create a popover for priority selection
-                    if current_priority:
-                        label, css_class = priority_display[current_priority]
-                        button_label = label
-                    else:
-                        button_label = "⚠️ Set Priority"
-                        css_class = ""
+                    for row_start in range(1, total_ai_messages + 1, 5):
+                        cols = st.columns(min(5, total_ai_messages - row_start + 1))
+                        for i, col in enumerate(cols):
+                            priority_num = row_start + i
+                            if priority_num <= total_ai_messages:
+                                with col:
+                                    is_assigned = priority_num in assigned_priorities and current_priority != priority_num
+                                    is_current = current_priority == priority_num
+                                    
+                                    button_type = "primary" if is_current else "secondary"
+                                    disabled = is_assigned
+                                    
+                                    button_label_text = str(priority_num)
+                                    if is_assigned:
+                                        button_label_text += " ✓"
+                                    
+                                    if st.button(
+                                        button_label_text,
+                                        key=f"priority_{priority_num}_{message_index}",
+                                        use_container_width=True,
+                                        type=button_type,
+                                        disabled=disabled,
+                                        help="Already assigned" if is_assigned else f"Set priority rank {priority_num}"
+                                    ):
+                                        if api_client.update_message_priority(doctor_name, conv['id'], message_index, priority_num):
+                                            st.rerun()
                     
-                    with st.popover(button_label, use_container_width=False):
-                        st.markdown("**Set Priority**")
-                        
-                        if st.button("🔴 High Priority", key=f"high_{message_index}", 
-                                   use_container_width=True,
-                                   type="primary" if current_priority == "high" else "secondary"):
-                            current_conv['messages'][message_index]['priority'] = "high"
-                            save_conversations(conversations)
-                            st.rerun()
-                        
-                        if st.button("🟡 Medium Priority", key=f"medium_{message_index}",
-                                   use_container_width=True,
-                                   type="primary" if current_priority == "medium" else "secondary"):
-                            current_conv['messages'][message_index]['priority'] = "medium"
-                            save_conversations(conversations)
-                            st.rerun()
-                        
-                        if st.button("🟢 Low Priority", key=f"low_{message_index}",
-                                   use_container_width=True,
-                                   type="primary" if current_priority == "low" else "secondary"):
-                            current_conv['messages'][message_index]['priority'] = "low"
-                            save_conversations(conversations)
-                            st.rerun()
-                        
-                        # Add option to clear priority if one is set
-                        if current_priority:
-                            st.divider()
-                            if st.button("❌ Clear Priority", key=f"clear_{message_index}",
-                                       use_container_width=True):
-                                current_conv['messages'][message_index]['priority'] = None
-                                save_conversations(conversations)
+                    if current_priority is not None:
+                        st.divider()
+                        if st.button("❌ Clear Priority", key=f"clear_{message_index}",
+                                   use_container_width=True):
+                            if api_client.update_message_priority(doctor_name, conv['id'], message_index, 0):
                                 st.rerun()
 
 
-def render_holistic_feedback(conv):
-    """Render the holistic RLHF feedback form after conversation completion"""
+def render_final_diagnosis(conv):
+    """Render the AI-generated final diagnosis with feedback form"""
     st.markdown("---")
-    st.markdown("## Feedback")
+    st.markdown("## 🩺 AI-Generated Final Diagnosis")
     
-    # Get existing feedback or initialize
-    feedback = conv.get('holistic_feedback', {
-        'duration_rating': None,
-        'process_notes': ''
-    })
+    diagnosis_data = conv.get('final_diagnosis', {})
+    ai_diagnosis = diagnosis_data.get('ai_diagnosis', '')
     
-    # F-3.3.1: Duration/Length Rating
-    st.markdown("### Duration Rating")
-    st.markdown("Rate the overall length of the conversation:")
+    if ai_diagnosis:
+        st.markdown("### Diagnosis Report")
+        
+        # Display the diagnosis in markdown format
+        st.markdown(ai_diagnosis)
+        
+        st.markdown("---")
+        
+    else:
+        st.info("⏳ Waiting for AI to generate final diagnosis...")
+        st.caption("The AI will automatically provide a diagnosis when sufficient information is gathered.")
+        return
     
-    duration_options = ["Too Long", "Optimal", "Too Short"]
+    # Feedback section
+    st.markdown("### 📝 Provide Your Expert Evaluation")
+    
+    diagnosis_feedback = st.text_area(
+        "Your Professional Assessment:",
+        value=diagnosis_data.get('diagnosis_feedback', ''),
+        height=300,
+        key="diagnosis_feedback_input",
+        placeholder="""Please provide detailed feedback on:
+
+**Diagnostic Accuracy**
+• Primary diagnosis correctness
+• Appropriateness of differential diagnoses
+• Accuracy of confidence levels
+
+**Clinical Reasoning**
+• Soundness of diagnostic logic
+• Proper consideration of symptoms
+• Evidence-based approach
+
+**Completeness**
+• Coverage of relevant conditions
+• Thoroughness of evaluation
+• Missing considerations
+
+**Recommendations Quality**
+• Appropriateness of suggested actions
+• Relevance of tests/evaluations
+• Accuracy of urgency assessment
+• Correct department referral
+
+**Overall Assessment**
+• Agreement with diagnosis
+• What would you do differently?
+• Suggestions for improvement
+• Training opportunities identified"""
+    )
+    
+    if st.button("💾 Save Diagnosis Evaluation", type="primary", key="save_diagnosis_feedback"):
+        api_client = get_api_client()
+        doctor_name = get_session_state('doctor_name')
+        
+        if api_client.save_diagnosis_feedback(doctor_name, conv['id'], diagnosis_feedback):
+            st.success("✅ Your evaluation has been saved successfully!")
+            st.rerun()
+        else:
+            st.error("Failed to save evaluation. Please try again.")
+
+
+def render_holistic_feedback(conv):
+    """Render the holistic RLHF feedback form"""
+    st.markdown("---")
+    st.markdown("## 💬 Conversation Quality Feedback")
+    
+    feedback = conv.get('holistic_feedback', {})
+    api_client = get_api_client()
+    doctor_name = get_session_state('doctor_name')
+    
+    # Section 1: Questions Quality
+    st.markdown("### 📋 AI Questions Assessment")
+    
+    questions_feedback = st.text_area(
+        "Evaluate the AI's questioning strategy:",
+        value=feedback.get('questions_feedback', ''),
+        height=200,
+        key="questions_feedback_input",
+        placeholder="""Assess:
+• Clinical relevance and appropriateness
+• Clarity and understandability
+• Completeness of information gathering
+• Logical flow and sequence
+• Follow-up question quality
+• Efficiency (redundancy, missing areas)"""
+    )
+    
+    if st.button("💾 Save Questions Feedback", type="secondary", key="save_questions_feedback"):
+        if api_client.save_conversation_feedback(
+            doctor_name, conv['id'], questions_feedback=questions_feedback
+        ):
+            st.success("✅ Questions feedback saved!")
+            st.rerun()
+    
+    # Section 2: Duration Rating
+    st.markdown("---")
+    st.markdown("### ⏱️ Conversation Length")
+    
     current_duration = feedback.get('duration_rating')
     
     col1, col2, col3 = st.columns(3)
@@ -246,198 +293,167 @@ def render_holistic_feedback(conv):
         if st.button("Too Long", key="duration_too_long", 
                    use_container_width=True,
                    type="primary" if current_duration == "Too Long" else "secondary"):
-            feedback['duration_rating'] = "Too Long"
-            conv['holistic_feedback'] = feedback
-            conversations = get_session_state('conversations')
-            save_conversations(conversations)
-            st.rerun()
+            if api_client.save_conversation_feedback(doctor_name, conv['id'], duration_rating="Too Long"):
+                st.rerun()
     
     with col2:
         if st.button("Optimal", key="duration_optimal",
                    use_container_width=True,
                    type="primary" if current_duration == "Optimal" else "secondary"):
-            feedback['duration_rating'] = "Optimal"
-            conv['holistic_feedback'] = feedback
-            conversations = get_session_state('conversations')
-            save_conversations(conversations)
-            st.rerun()
+            if api_client.save_conversation_feedback(doctor_name, conv['id'], duration_rating="Optimal"):
+                st.rerun()
     
     with col3:
         if st.button("Too Short", key="duration_too_short",
                    use_container_width=True,
                    type="primary" if current_duration == "Too Short" else "secondary"):
-            feedback['duration_rating'] = "Too Short"
-            conv['holistic_feedback'] = feedback
-            conversations = get_session_state('conversations')
-            save_conversations(conversations)
-            st.rerun()
+            if api_client.save_conversation_feedback(doctor_name, conv['id'], duration_rating="Too Short"):
+                st.rerun()
     
-    # F-3.3.2: General Process Notes
-    st.markdown("### General Process Notes")
-    st.markdown("Provide general qualitative feedback on the flow, logic, and style of the conversation:")
+    # Section 3: General Process Notes
+    st.markdown("---")
+    st.markdown("### 📝 Overall Experience")
     
     process_notes = st.text_area(
-        "Your feedback:",
+        "General feedback:",
         value=feedback.get('process_notes', ''),
         height=150,
         key="process_notes_input",
-        placeholder="Share your thoughts on the conversation flow, AI's logic, questioning style, and overall experience..."
+        placeholder="Comments on flow, logic, style, and overall experience..."
     )
     
-    if st.button("Save Feedback", type="primary", key="save_holistic_feedback"):
-        feedback['process_notes'] = process_notes
-        conv['holistic_feedback'] = feedback
-        conversations = get_session_state('conversations')
-        save_conversations(conversations)
-        st.success("Feedback saved successfully!")
-        st.rerun()
+    if st.button("💾 Save Overall Feedback", type="primary", key="save_holistic_feedback"):
+        if api_client.save_conversation_feedback(doctor_name, conv['id'], process_notes=process_notes):
+            st.success("✅ Overall feedback saved!")
+            st.rerun()
 
 
 def conversation_detail_page():
-    """Render the active conversation detail page where doctor and AI exchange messages."""
+    """Render the active conversation detail page"""
     doctor_name = get_session_state('doctor_name')
     active_id = get_session_state('active_conv_id')
-    conversations = get_session_state('conversations') or []
-
-    # Find the active conversation for THIS doctor
-    conv = None
-    for c in conversations:
-        if c.get('id') == active_id and c.get('doctor') == doctor_name:
-            conv = c
-            break
-
+    api_client = get_api_client()
+    
+    # Get conversation from API
+    conv = api_client.get_conversation(doctor_name, active_id)
+    
     if conv is None:
-        st.error("Active conversation not found for this doctor.")
+        st.error("Conversation not found.")
         if st.button("Back to Conversations"):
             set_session_state('current_page', 'conversation')
             st.rerun()
         return
-
+    
     st.title(f"Conversation #{conv['id']} - Dr. {doctor_name}")
     
-    # Apply custom CSS for chat interface
     apply_chat_css()
     
-    # Check if conversation is ended
     is_ended = conv.get('is_ended', False)
     
-    # If this is the first time viewing the conversation, send the initial problem and get AI response
-    if not conv.get('messages'):
-        initial_message = f"Initial Patient Problem: {conv.get('initial_problem', 'No initial problem specified')}"
-        add_message(conv['id'], 'Doctor', initial_message)
-        # Add initial AI response
-        ai_initial_reply = "Thank you for providing the patient's problem. I'll help you analyze this case. What additional symptoms or medical history should we consider?"
-        add_message(conv['id'], 'AI', ai_initial_reply)
-        st.rerun()
+    # Check if diagnosis is available
+    diagnosis_info = api_client.get_final_diagnosis(doctor_name, conv['id'])
+    has_diagnosis = diagnosis_info.get('is_available', False) if diagnosis_info else False
     
-    # Count AI messages
-    ai_message_count = count_ai_messages(conv.get('messages', []))
-    
-    # Display conversation status
-    if is_ended:
-        st.markdown(f"""
+    # Display status banner
+    if has_diagnosis and is_ended:
+        st.markdown("""
+        <div class="diagnosis-ready-banner">
+            ✅ Final Diagnosis Ready - Review it in the "AI Diagnosis & Feedback" tab below
+        </div>
+        """, unsafe_allow_html=True)
+    elif is_ended:
+        st.markdown("""
         <div class="conversation-ended">
             <h3>🏁 Conversation Ended</h3>
-            <p>This conversation has been completed after {ai_message_count} AI responses.</p>
             <p>Please provide your feedback below.</p>
         </div>
         """, unsafe_allow_html=True)
     else:
-        remaining = 5 - ai_message_count
-        if remaining > 0:
-            st.info(f"💬 AI responses: {ai_message_count}")
+        # Get diagnostic status
+        session_id = f"{doctor_name}_{conv['id']}"
+        status = api_client.get_status(session_id)
+        
+        if status:
+            questions_asked = status.get('questions_asked', 0)
+            min_required = status.get('min_required', 5)
+            max_questions = status.get('max_allowed', 15)
+            
+            progress_text = f"💬 Questions: {questions_asked}/{max_questions}"
+            if questions_asked < min_required:
+                progress_text += f" (min {min_required} for diagnosis)"
+            
+            st.info(progress_text)
+            
+            aspects = status.get('aspects_covered', [])
+            if aspects:
+                st.caption(f"📊 Covered: {', '.join(aspects)}")
     
     # Messages area
-    st.markdown("### Messages")
+    st.markdown("### Conversation")
     if conv.get('messages'):
         for idx, msg in enumerate(conv.get('messages', [])):
             if isinstance(msg, dict):
                 sender = msg['sender']
                 content = msg['content']
             else:
-                # Handle old message format
                 sender, content = msg.split(': ', 1)
-            render_message(sender, content, idx)
+            render_message(sender, content, idx, conv)
     else:
-        st.info("No messages yet. Send the first message below.")
-
-    # Show holistic feedback form if conversation is ended
+        st.info("Start the conversation by describing the patient's symptoms.")
+    
+    # Show tabs only if conversation is ended
     if is_ended:
-        render_holistic_feedback(conv)
-    else:
-        # Message input area with custom styling (only if not ended)
-        st.markdown("""
-            <style>
-            .stTextInput input {
-                border-radius: 20px;
-                padding: 10px 15px;
-                border: 1px solid #ccc;
-            }
-            .stButton > button {
-                border-radius: 20px;
-                padding: 10px 25px;
-            }
-            </style>
-        """, unsafe_allow_html=True)
+        tab1, tab2 = st.tabs(["🩺 AI Diagnosis & Feedback", "💬 Conversation Feedback"])
         
-        # Create a row with message input and send button
+        with tab1:
+            render_final_diagnosis(conv)
+        
+        with tab2:
+            render_holistic_feedback(conv)
+    else:
+        # Message input (only if not ended)
+        st.markdown("---")
         cols = st.columns([8, 2])
         
         with cols[0]:
-            user_msg = st.text_input("Type your message...", key="user_msg_input")
+            user_msg = st.text_input("Type your message...", key="user_msg_input", 
+                                    placeholder="Describe symptoms or answer AI's question...")
         with cols[1]:
-            send = st.button("Send", type="primary")
-
+            send = st.button("Send", type="primary", use_container_width=True)
+        
         if send and user_msg:
-            # Add doctor's message as a dictionary
-            conversations = get_session_state('conversations')
-            # Find the conversation for THIS doctor
-            conv = next((c for c in conversations if c['id'] == active_id and c.get('doctor') == doctor_name), None)
-            if conv:
-                conv['messages'].append({
-                    'sender': 'Doctor',
-                    'content': user_msg,
-                    'rating': None,
-                    'priority': None
-                })
-                
-                # Check if we've reached 5 AI messages
-                current_ai_count = count_ai_messages(conv['messages'])
-                
-                if current_ai_count < 5:
-                    # Add AI response (placeholder)
-                    ai_reply = f"AI response #{current_ai_count + 1}"
-                    conv['messages'].append({
-                        'sender': 'AI',
-                        'content': ai_reply,
-                        'rating': None,
-                        'priority': None
-                    })
-                    
-                    # Check if this was the 5th AI message
-                    if current_ai_count + 1 >= 5:
-                        conv['is_ended'] = True
-                        conv['messages'].append({
-                            'sender': 'System',
-                            'content': '🏁 Conversation has ended after 5 AI responses. Please provide your feedback below.',
-                            'rating': None,
-                            'priority': None
-                        })
-                
-                save_conversations(conversations)
+            health = api_client.health_check()
+            if health.get("status") != "healthy":
+                st.error("⚠️ Backend service unavailable!")
+                st.stop()
+            
+            with st.spinner('🤔 AI is analyzing...'):
+                session_id = f"{doctor_name}_{conv['id']}"
+                api_response = api_client.send_message(
+                    message=user_msg,
+                    session_id=session_id,
+                    doctor_name=doctor_name,
+                    conversation_id=conv['id']
+                )
+            
+            if api_response:
+                if api_response.get('is_final_diagnosis'):
+                    st.success("✅ Final diagnosis generated! Check the tabs below.")
+                else:
+                    st.success("✅ Response received!")
                 st.rerun()
-
+            else:
+                st.error("Failed to get response. Please try again.")
+    
     # Controls
     st.markdown("---")
-    cols = st.columns([1, 1])  # Two columns for End Session and Save & Close
+    cols = st.columns([1, 1])
     with cols[0]:
-        if st.button("End Session"):
+        if st.button("End Session", use_container_width=True):
             set_session_state('doctor_name', None)
             set_session_state('current_page', 'login')
             st.rerun()
     with cols[1]:
-        if st.button("Save & Close", type="primary"):
-            save_conversations(conversations)
-            st.success("Conversation saved successfully!")
+        if st.button("Back to Conversations", type="primary", use_container_width=True):
             set_session_state('current_page', 'conversation')
             st.rerun()
