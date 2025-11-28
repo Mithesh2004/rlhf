@@ -261,17 +261,11 @@ def render_holistic_feedback(conv):
     st.markdown("### 📋 AI Questions Assessment")
     
     questions_feedback = st.text_area(
-        "Evaluate the AI's questioning strategy:",
+        "Enter the missed questions:",
         value=feedback.get('questions_feedback', ''),
         height=200,
         key="questions_feedback_input",
-        placeholder="""Assess:
-• Clinical relevance and appropriateness
-• Clarity and understandability
-• Completeness of information gathering
-• Logical flow and sequence
-• Follow-up question quality
-• Efficiency (redundancy, missing areas)"""
+        placeholder="""Mention the missed questions by the AI during the conversation(if any)"""
     )
     
     if st.button("💾 Save Questions Feedback", type="secondary", key="save_questions_feedback"):

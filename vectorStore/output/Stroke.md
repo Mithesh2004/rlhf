@@ -1,0 +1,192 @@
+```markdown
+October/2019
+सत्यमेव जयते
+Department of Health Research
+Ministry of Health and Family Welfare, Government of India
+OF MEDICALA
+NEW DELHI
+icma
+INDIAN COUNCIL OF
+MEDICAL RESEARCH
+Serving the nation since 1911
+# Standard Treatment Workflow (STW) for the Management of
+STROKE
+ICD-10-163, 164
+
+## WHAT IS STROKE?
+*   An episode of
+    neurological
+    dysfunction caused by
+    focal cerebral, spinal, or
+    retinal infarction or
+    haemorrhage
+
+### SYMPTOMS
+*   Numbness or weakness, especially on one side of
+    the body
+*   Loss of consciousness or altered consciousness
+*   Decreased vision in one or both eyes
+*   Language difficulties, either in speaking or
+    understanding
+*   Difficulty walking; loss of balance or coordination
+*   Confusion or loss of memory
+*   Swallowing difficulties
+*   Paralysis of any part of the body, including face
+*   Sudden, severe headache with no known cause
+*   Neck pain
+*   Nausea and vomiting
+
+### WARNING SIGNS (BEFAST)
+*   BALANCE: Loss of balance or
+    coordination
+*   EYES: Sudden blurred or double vision/
+    sudden, persistent vision trouble
+*   FACE: Deviation at the angle of the
+    mouth
+*   ARM: Arm Drift
+*   SPEECH : Slurred speech or the inability
+    to speak or understand
+*   TIME: Act fast
+*   Sudden new onset of headache or loss of
+    consciousness
+*   Sudden giddiness, vomiting and
+    imbalance
+
+## TYPES OF STROKE
+
+### Ischemic stroke
+Focal cerebral, spinal, or
+retinal infarction
+
+### Intracerebral haemorrhage
+Focal collection of blood
+within the brain
+parenchyma or ventricular
+system that is not caused by
+trauma
+
+### Subarachnoid haemorrhage
+Bleeding into the
+subarachnoid space
+
+### Cerebral venous
+thrombosis Thrombosis of
+a cerebral venous
+structure
+
+### Transient Ischemic Attack
+(ΤΙΑ)
+Transient episode of
+neurologic dysfunction caused
+by focal cerebral, spinal cord,
+or retinal ischemia, without
+acute infarction
+
+## PRELIMINARY MANAGEMENT
+*   Assess and manage ABCS
+*   Initiate cardiac monitoring
+*   Maintain O2 saturation >94%
+*   Establish IV access
+*   Determine blood glucose and treat accordingly
+*   Determine time of symptom onset or last known normal, and obtain family
+    contact information, preferably a cell phone
+*   Triage and RAPID TRANSFER of patient to nearest district hospital with CT
+    Scan facility or Stroke center with facility for thrombolysis
+*   Referal hospital to be notified to handle the referred patient with stroke
+
+## INVESTIGATIONS
+
+### ESSENTIAL
+*   CT Scan head
+*   ECG
+*   Blood Sugar
+*   Lipids
+*   Renal parameter
+
+### DESIRABLE
+*   CTA
+*   Echocardiogram
+
+### OPTIONAL
+*   MRI/MRA
+*   Holter monitoring
+
+## MANAGEMENT
+
+### STROKE ONSET TIME: <4.5 HOURS
+ISCHEMIC:
+IV tPA (0-4.5 hrs) or
+endovascular treatment
+according to eligibility
+and availability
+
+### HAEMORRHAGIC:
+*   Dysphagia assessment,
+*   Blood pressure/blood sugar monitoring and IV fluids.
+*   Prevention of Pneumonia
+*   Prophylaxis for deep venous thrombosis etc, monitor and record ECG
+
+* RECOMMENDED DIAGNOSTIC STUDIES
+
+### ALL PATIENTS
+*   Noncontrast brain CT or brain MRI
+*   Blood glucose
+*   Oxygen saturation
+*   Serum electrolytes/renal function tests
+*   Complete blood count, including platelet count
+*   Markers of cardiac ischemia
+*   BT, CT, Prothrombin time/INR
+*   Activated partial thromboplastin time
+*   ECG
+*   FLP and carotid doppler (ischemic stroke)
+
+### SELECTED PATIENTS
+*   TT and/or ECT if it is suspected the patient is taking direct thrombin
+    inhibitors or direct factor Xa inhibitors
+*   Liver function tests
+*   Toxicology screen
+*   Blood alcohol level
+*   Pregnancy test
+*   Arterial blood gas test (if hypoxia is suspected)
+*   Chest radiography (if lung disease is suspected)
+*   Lumbar puncture (if subarachnoid hemorrhage is suspected and CT
+    scan is negative for blood)
+*   Electroencephalogram (if seizures are suspected)
+
+### STROKE ONSET TIME: >4.5 HOURS
+Rapid Assessment, CODE Stroke, Blood pressure and Blood Sugar monitoring, NIHSS, Intravenous lines
+Endovascular treatment with Mechanical thrombectomy using stent retriever (4.5 hrs to 24hrs) according to
+eligibility
+
+### SECONDARY PREVENTION
+*   Aspirin (in ischemic stroke)
+*   Antihypertensives
+*   Antidiabetics
+*   Lipid lowering agents
+
+### REHABILITATION
+*   Physiotherapy
+*   Speech Therapy
+*   Occupational Therapy
+*   Vocational training
+
+### DISCHARGE PLANNING
+(checklist: drugs, diet, compliance,
+exercises, health education)
+
+FOLLOW UP at 2nd week, 1st month, 3rd
+month and 6th month
+
+## STROKE UNIT MANAGEMENT
+*   Medical and Nursing staff: control of blood pressure; control of diabetes; swallow assessment; DVT prophylaxis; antiplatelet drugs
+*   Rehabilitation staff:
+    *   Acute phase: basic bed mobility, transfer techniques, communication training, prevention of complications
+    *   Subacute and chronic phase: mobility, gait and balance training, training of activities of daily living (grooming, eating, dressing etc), bowel/bladder
+        training, perceptual and cognitive rehabilitation, provision of assistive devices.
+
+KEEP A HIGH THRESHOLD FOR INVASIVE PROCEDURES
+This STW has been prepared by national experts of India with feasibility considerations for various levels of healthcare system in the country. These broad guidelines are advisory, and are
+based on expert opinions and available scientific evidence. There may be variations in the management of an individual patient based on his/her specific condition, as decided by the
+treating physician. There will be no indemnity for direct or indirect consequences. Kindly visit our web portal (stw.icmr.org.in) for more information.
+Indian Council of Medical Research and Department of Health Research, Ministry of Health & Family Welfare, Government of India.
+```

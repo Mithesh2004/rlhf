@@ -35,7 +35,7 @@ class ICMRDiagnosticChatbot:
         collection_name: str = "icmr_data",
         embedding_model: str = "BAAI/bge-small-en-v1.5",
         gemini_model: str = "gemini-2.5-flash",
-        top_k: int = 5,
+        top_k: int = 10,
         min_questions: int = 5,
         max_questions: int = 10,
         confidence_threshold: float = 0.85

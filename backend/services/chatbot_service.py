@@ -21,7 +21,7 @@ class ChatbotService:
                     collection_name=settings.QDRANT_COLLECTION,
                     embedding_model=settings.EMBEDDING_MODEL,
                     gemini_model=settings.GEMINI_MODEL,
-                    top_k=5,
+                    top_k=10,
                     min_questions=int(settings.MIN_QUESTIONS),
                     max_questions=int(settings.MAX_QUESTIONS),
                     confidence_threshold=float(settings.CONFIDENCE_THRESHOLD)

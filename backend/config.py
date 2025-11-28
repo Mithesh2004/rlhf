@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     
     # Chatbot Configuration
     MIN_QUESTIONS: str = os.getenv("MIN_QUESTIONS", "5")
-    MAX_QUESTIONS: str = os.getenv("MAX_QUESTIONS", "15")
+    MAX_QUESTIONS: str = os.getenv("MAX_QUESTIONS", "10")
     CONFIDENCE_THRESHOLD: str = os.getenv("CONFIDENCE_THRESHOLD", "0.85")
     
     # API

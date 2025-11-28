@@ -12,8 +12,7 @@ def login_page():
     health = api_client.health_check()
     
     if health.get("status") != "healthy":
-        st.error("⚠️ Backend service is not available. Please ensure the backend is running on http://localhost:8000")
-        st.info("Start backend with: `cd backend && python main.py`")
+        st.error("⚠️ Backend service is not available.")
         st.stop()
     else:
         st.success("✅ Connected to backend")

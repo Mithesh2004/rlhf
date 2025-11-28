@@ -102,7 +102,7 @@ def conversation_page():
         
         with st.form("new_conversation"):
             patient_problem = st.text_area(
-                "Enter patient's initial problem",
+                "Enter the conversation title",
                 placeholder="Patient presents with...",
                 height=150
             )
