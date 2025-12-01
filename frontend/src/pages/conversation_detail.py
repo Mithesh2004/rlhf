@@ -1,5 +1,5 @@
 import streamlit as st
-from ..utils.session_state import get_session_state, set_session_state
+from ..utils.session_state import get_session_state, set_session_state, clear_session
 from ..utils.api_client import get_api_client
 
 
@@ -17,6 +17,7 @@ def apply_chat_css():
         border-radius: 15px;
         margin: 5px 0;
         max-width: 75%;
+        word-wrap: break-word;
     }
     .doctor-message {
         float: right;
@@ -62,6 +63,42 @@ def apply_chat_css():
         font-size: 16px;
         font-weight: 500;
     }
+    
+    /* Typing indicator animation */
+    .typing-indicator {
+        display: flex;
+        align-items: center;
+        padding: 5px 0;
+    }
+    
+    .typing-indicator span {
+        height: 8px;
+        width: 8px;
+        background-color: #90949c;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 5px;
+        animation: typing 1.4s infinite;
+    }
+    
+    .typing-indicator span:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+    
+    .typing-indicator span:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+    
+    @keyframes typing {
+        0%, 60%, 100% {
+            transform: translateY(0);
+            opacity: 0.5;
+        }
+        30% {
+            transform: translateY(-10px);
+            opacity: 1;
+        }
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -85,15 +122,17 @@ def render_message(sender, content, message_index=None, conv=None):
         st.markdown(f'<div class="system-message">🤖 {content}</div>', unsafe_allow_html=True)
     else:
         css_class = "doctor-message" if sender == "Doctor" else "ai-message"
+        # Escape HTML and preserve newlines
+        content_escaped = content.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
         st.markdown(f"""
         <div class="message-container">
             <div class="message {css_class}">
-                {content}
+                {content_escaped}
             </div>
         </div>
         """, unsafe_allow_html=True)
         
-        # Add rating and priority buttons only for AI messages
+        # Add rating and priority buttons only for AI messages from database
         if sender == "AI" and message_index is not None and conv is not None:
             doctor_name = get_session_state('doctor_name')
             api_client = get_api_client()
@@ -199,12 +238,35 @@ def render_final_diagnosis(conv):
         st.caption("The AI will automatically provide a diagnosis when sufficient information is gathered.")
         return
     
-    # Feedback section
-    st.markdown("### 📝 Provide Your Expert Evaluation")
+    # Feedback section with indicator
+    existing_feedback = diagnosis_data.get('diagnosis_feedback', '')
+    has_feedback = bool(existing_feedback and existing_feedback.strip())
+    
+    # Header with status badge
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown("### 📝 Provide Your Expert Evaluation")
+    with col2:
+        if has_feedback:
+            st.markdown("""
+            <div style="background-color: #d4edda; color: #155724; padding: 8px 12px; 
+                        border-radius: 20px; text-align: center; font-weight: 500; 
+                        border: 1px solid #c3e6cb; margin-top: 5px;">
+                ✅ Submitted
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="background-color: #fff3cd; color: #856404; padding: 8px 12px; 
+                        border-radius: 20px; text-align: center; font-weight: 500; 
+                        border: 1px solid #ffeeba; margin-top: 5px;">
+                ⏳ Pending
+            </div>
+            """, unsafe_allow_html=True)
     
     diagnosis_feedback = st.text_area(
         "Your Professional Assessment:",
-        value=diagnosis_data.get('diagnosis_feedback', ''),
+        value=existing_feedback,
         height=300,
         key="diagnosis_feedback_input",
         placeholder="""Please provide detailed feedback on:
@@ -237,7 +299,9 @@ def render_final_diagnosis(conv):
 • Training opportunities identified"""
     )
     
-    if st.button("💾 Save Diagnosis Evaluation", type="primary", key="save_diagnosis_feedback"):
+    button_text = "💾 Update Diagnosis Evaluation" if has_feedback else "💾 Save Diagnosis Evaluation"
+    
+    if st.button(button_text, type="primary", key="save_diagnosis_feedback"):
         api_client = get_api_client()
         doctor_name = get_session_state('doctor_name')
         
@@ -257,18 +321,44 @@ def render_holistic_feedback(conv):
     api_client = get_api_client()
     doctor_name = get_session_state('doctor_name')
     
+    # Check what feedback exists
+    has_questions_feedback = bool(feedback.get('questions_feedback', '').strip())
+    has_duration_rating = bool(feedback.get('duration_rating'))
+    has_process_notes = bool(feedback.get('process_notes', '').strip())
+    
     # Section 1: Questions Quality
-    st.markdown("### 📋 AI Questions Assessment")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown("### 📋 AI Questions Assessment")
+    with col2:
+        if has_questions_feedback:
+            st.markdown("""
+            <div style="background-color: #d4edda; color: #155724; padding: 6px 10px; 
+                        border-radius: 15px; text-align: center; font-size: 13px;
+                        font-weight: 500; border: 1px solid #c3e6cb; margin-top: 8px;">
+                ✅ Done
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="background-color: #fff3cd; color: #856404; padding: 6px 10px; 
+                        border-radius: 15px; text-align: center; font-size: 13px;
+                        font-weight: 500; border: 1px solid #ffeeba; margin-top: 8px;">
+                ⏳ Pending
+            </div>
+            """, unsafe_allow_html=True)
     
     questions_feedback = st.text_area(
         "Enter the missed questions:",
         value=feedback.get('questions_feedback', ''),
         height=200,
         key="questions_feedback_input",
-        placeholder="""Mention the missed questions by the AI during the conversation(if any)"""
+        placeholder="""Mention the specific questions the AI should have asked but didn't (if any)"""
     )
     
-    if st.button("💾 Save Questions Feedback", type="secondary", key="save_questions_feedback"):
+    button_text = "💾 Update Questions Feedback" if has_questions_feedback else "💾 Save Questions Feedback"
+    
+    if st.button(button_text, type="secondary", key="save_questions_feedback"):
         if api_client.save_conversation_feedback(
             doctor_name, conv['id'], questions_feedback=questions_feedback
         ):
@@ -277,7 +367,26 @@ def render_holistic_feedback(conv):
     
     # Section 2: Duration Rating
     st.markdown("---")
-    st.markdown("### ⏱️ Conversation Length")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown("### ⏱️ Conversation Length")
+    with col2:
+        if has_duration_rating:
+            st.markdown("""
+            <div style="background-color: #d4edda; color: #155724; padding: 6px 10px; 
+                        border-radius: 15px; text-align: center; font-size: 13px;
+                        font-weight: 500; border: 1px solid #c3e6cb; margin-top: 8px;">
+                ✅ Done
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="background-color: #fff3cd; color: #856404; padding: 6px 10px; 
+                        border-radius: 15px; text-align: center; font-size: 13px;
+                        font-weight: 500; border: 1px solid #ffeeba; margin-top: 8px;">
+                ⏳ Pending
+            </div>
+            """, unsafe_allow_html=True)
     
     current_duration = feedback.get('duration_rating')
     
@@ -288,6 +397,7 @@ def render_holistic_feedback(conv):
                    use_container_width=True,
                    type="primary" if current_duration == "Too Long" else "secondary"):
             if api_client.save_conversation_feedback(doctor_name, conv['id'], duration_rating="Too Long"):
+                st.success("✅ Duration rating saved!")
                 st.rerun()
     
     with col2:
@@ -295,6 +405,7 @@ def render_holistic_feedback(conv):
                    use_container_width=True,
                    type="primary" if current_duration == "Optimal" else "secondary"):
             if api_client.save_conversation_feedback(doctor_name, conv['id'], duration_rating="Optimal"):
+                st.success("✅ Duration rating saved!")
                 st.rerun()
     
     with col3:
@@ -302,11 +413,35 @@ def render_holistic_feedback(conv):
                    use_container_width=True,
                    type="primary" if current_duration == "Too Short" else "secondary"):
             if api_client.save_conversation_feedback(doctor_name, conv['id'], duration_rating="Too Short"):
+                st.success("✅ Duration rating saved!")
                 st.rerun()
+    
+    # Show selected duration
+    if current_duration:
+        st.info(f"📊 Current rating: **{current_duration}**")
     
     # Section 3: General Process Notes
     st.markdown("---")
-    st.markdown("### 📝 Overall Experience")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown("### 📝 Overall Experience")
+    with col2:
+        if has_process_notes:
+            st.markdown("""
+            <div style="background-color: #d4edda; color: #155724; padding: 6px 10px; 
+                        border-radius: 15px; text-align: center; font-size: 13px;
+                        font-weight: 500; border: 1px solid #c3e6cb; margin-top: 8px;">
+                ✅ Done
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="background-color: #fff3cd; color: #856404; padding: 6px 10px; 
+                        border-radius: 15px; text-align: center; font-size: 13px;
+                        font-weight: 500; border: 1px solid #ffeeba; margin-top: 8px;">
+                ⏳ Pending
+            </div>
+            """, unsafe_allow_html=True)
     
     process_notes = st.text_area(
         "General feedback:",
@@ -316,10 +451,22 @@ def render_holistic_feedback(conv):
         placeholder="Comments on flow, logic, style, and overall experience..."
     )
     
-    if st.button("💾 Save Overall Feedback", type="primary", key="save_holistic_feedback"):
+    button_text = "💾 Update Overall Feedback" if has_process_notes else "💾 Save Overall Feedback"
+    
+    if st.button(button_text, type="primary", key="save_holistic_feedback"):
         if api_client.save_conversation_feedback(doctor_name, conv['id'], process_notes=process_notes):
             st.success("✅ Overall feedback saved!")
             st.rerun()
+    
+    # Overall completion status
+    st.markdown("---")
+    completed_count = sum([has_questions_feedback, has_duration_rating, has_process_notes])
+    total_count = 3
+    
+    if completed_count == total_count:
+        st.success(f"🎉 All feedback completed ({completed_count}/{total_count})")
+    else:
+        st.info(f"📊 Feedback progress: {completed_count}/{total_count} sections completed")
 
 
 def conversation_detail_page():
@@ -384,16 +531,40 @@ def conversation_detail_page():
     
     # Messages area
     st.markdown("### Conversation")
-    if conv.get('messages'):
-        for idx, msg in enumerate(conv.get('messages', [])):
-            if isinstance(msg, dict):
-                sender = msg['sender']
-                content = msg['content']
-            else:
-                sender, content = msg.split(': ', 1)
-            render_message(sender, content, idx, conv)
-    else:
-        st.info("Start the conversation by describing the patient's symptoms.")
+    
+    # Create a container for messages
+    messages_container = st.container()
+    
+    with messages_container:
+        if conv.get('messages') or st.session_state.get('pending_message'):
+            # Display existing messages
+            for idx, msg in enumerate(conv.get('messages', [])):
+                if isinstance(msg, dict):
+                    sender = msg['sender']
+                    content = msg['content']
+                else:
+                    sender, content = msg.split(': ', 1)
+                render_message(sender, content, idx, conv)
+            
+            # Display pending doctor message (optimistic update)
+            if st.session_state.get('pending_message'):
+                render_message("Doctor", st.session_state['pending_message'], None, None)
+            
+            # Display AI typing indicator
+            if st.session_state.get('waiting_for_ai'):
+                st.markdown("""
+                <div class="message-container">
+                    <div class="message ai-message">
+                        <div class="typing-indicator">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("Start the conversation by describing the patient's symptoms.")
     
     # Show tabs only if conversation is ended
     if is_ended:
@@ -405,49 +576,81 @@ def conversation_detail_page():
         with tab2:
             render_holistic_feedback(conv)
     else:
-        # Message input (only if not ended)
-        st.markdown("---")
-        cols = st.columns([8, 2])
-        
-        with cols[0]:
-            user_msg = st.text_input("Type your message...", key="user_msg_input", 
-                                    placeholder="Describe symptoms or answer AI's question...")
-        with cols[1]:
-            send = st.button("Send", type="primary", use_container_width=True)
-        
-        if send and user_msg:
-            health = api_client.health_check()
-            if health.get("status") != "healthy":
-                st.error("⚠️ Backend service unavailable!")
-                st.stop()
+        # Check if we're in "sending" mode
+        if st.session_state.get('sending_message'):
+            # We're processing a message - show it and call API
+            user_msg = st.session_state.get('pending_message')
             
-            with st.spinner('🤔 AI is analyzing...'):
+            if user_msg:
                 session_id = f"{doctor_name}_{conv['id']}"
+                
+                # Call API
                 api_response = api_client.send_message(
                     message=user_msg,
                     session_id=session_id,
                     doctor_name=doctor_name,
                     conversation_id=conv['id']
                 )
-            
-            if api_response:
-                if api_response.get('is_final_diagnosis'):
-                    st.success("✅ Final diagnosis generated! Check the tabs below.")
+                
+                # Clear sending state
+                st.session_state['sending_message'] = False
+                st.session_state['pending_message'] = None
+                st.session_state['waiting_for_ai'] = False
+                
+                if api_response:
+                    if api_response.get('is_final_diagnosis'):
+                        st.success("✅ Final diagnosis generated! Check the tabs below.")
+                    else:
+                        st.success("✅ Response received!")
+                    st.rerun()
                 else:
-                    st.success("✅ Response received!")
-                st.rerun()
-            else:
-                st.error("Failed to get response. Please try again.")
+                    st.error("Failed to get response. Please try again.")
+                    st.rerun()
+        
+        # Message input (only if not ended)
+        st.markdown("---")
+        
+        # Use form for Enter key submission
+        with st.form("message_form", clear_on_submit=True):
+            cols = st.columns([8, 2])
+            
+            with cols[0]:
+                user_msg = st.text_input(
+                    "Type your message:",
+                    placeholder="Describe symptoms or answer AI's question...",
+                    label_visibility="collapsed"
+                )
+            
+            with cols[1]:
+                send = st.form_submit_button("📤 Send", type="primary", use_container_width=True)
+        
+        if send and user_msg:
+            # Check AI health
+            health = api_client.health_check()
+            if health.get("status") != "healthy":
+                st.error("⚠️ Backend service unavailable!")
+                st.stop()
+            
+            # Set pending state and trigger rerun to show message
+            st.session_state['pending_message'] = user_msg
+            st.session_state['waiting_for_ai'] = True
+            st.session_state['sending_message'] = True
+            
+            # This rerun will show the message and typing indicator
+            # Then the code above will handle the API call
+            st.rerun()
     
     # Controls
     st.markdown("---")
-    cols = st.columns([1, 1])
+    cols = st.columns([1, 1, 1])
     with cols[0]:
-        if st.button("End Session", use_container_width=True):
-            set_session_state('doctor_name', None)
-            set_session_state('current_page', 'login')
+        if st.button("🚪 Logout", use_container_width=True):
+            clear_session()
             st.rerun()
     with cols[1]:
-        if st.button("Back to Conversations", type="primary", use_container_width=True):
+        if st.button("⬅️ Back to Conversations", use_container_width=True):
             set_session_state('current_page', 'conversation')
+            st.rerun()
+    with cols[2]:
+        if st.button("🔄 Refresh", type="primary", use_container_width=True):
             st.rerun()

@@ -26,7 +26,12 @@ def set_session_state(key, value):
 
 
 def clear_session():
-    """Clear the session state"""
+    """Clear the session state and logout"""
+    # Clear all session variables
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    
+    # Reinitialize to default state
     st.session_state['doctor_name'] = None
     st.session_state['current_page'] = 'login'
     st.session_state['conversations'] = []

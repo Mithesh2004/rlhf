@@ -21,12 +21,14 @@ class ChatbotService:
                     collection_name=settings.QDRANT_COLLECTION,
                     embedding_model=settings.EMBEDDING_MODEL,
                     gemini_model=settings.GEMINI_MODEL,
-                    top_k=10,
+                    top_k=5,
                     min_questions=int(settings.MIN_QUESTIONS),
                     max_questions=int(settings.MAX_QUESTIONS),
-                    confidence_threshold=float(settings.CONFIDENCE_THRESHOLD)
+                    confidence_threshold=float(settings.CONFIDENCE_THRESHOLD),
+                    mongodb_uri=settings.MONGODB_URI,  # Add MongoDB
+                    mongodb_db_name=settings.MONGODB_DB_NAME
                 )
-                logger.info("✅ Chatbot service initialized")
+                logger.info("✅ Chatbot service initialized with persistent storage")
             except Exception as e:
                 logger.error(f"❌ Failed to initialize chatbot: {e}")
                 raise

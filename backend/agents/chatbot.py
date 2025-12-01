@@ -4,14 +4,17 @@ from pathlib import Path
 from typing import List, Dict, Optional, Set, Literal
 from dotenv import load_dotenv
 from pydantic import BaseModel
+from datetime import datetime
 
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
+from langchain_core.output_parsers import JsonOutputParser
+from pymongo import MongoClient
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -19,6 +22,57 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
+
+
+class MongoDBChatMessageHistory(BaseChatMessageHistory):
+    """Chat message history stored in MongoDB"""
+    
+    def __init__(self, session_id: str, mongo_client: MongoClient, db_name: str):
+        self.session_id = session_id
+        self.collection = mongo_client[db_name]["chat_histories"]
+        self._messages = None
+    
+    @property
+    def messages(self) -> List[BaseMessage]:
+        """Retrieve messages from MongoDB"""
+        if self._messages is None:
+            doc = self.collection.find_one({"session_id": self.session_id})
+            if doc and "messages" in doc:
+                self._messages = []
+                for msg_data in doc["messages"]:
+                    if msg_data["type"] == "human":
+                        self._messages.append(HumanMessage(content=msg_data["content"]))
+                    else:
+                        self._messages.append(AIMessage(content=msg_data["content"]))
+            else:
+                self._messages = []
+        return self._messages
+    
+    def add_message(self, message: BaseMessage) -> None:
+        """Add a message to MongoDB"""
+        msg_data = {
+            "type": "human" if isinstance(message, HumanMessage) else "ai",
+            "content": message.content,
+            "timestamp": datetime.utcnow()
+        }
+        
+        self.collection.update_one(
+            {"session_id": self.session_id},
+            {
+                "$push": {"messages": msg_data},
+                "$set": {"updated_at": datetime.utcnow()}
+            },
+            upsert=True
+        )
+        
+        # Update cache
+        if self._messages is not None:
+            self._messages.append(message)
+    
+    def clear(self) -> None:
+        """Clear messages from MongoDB"""
+        self.collection.delete_one({"session_id": self.session_id})
+        self._messages = []
 
 
 class ResponseType(BaseModel):
@@ -35,10 +89,12 @@ class ICMRDiagnosticChatbot:
         collection_name: str = "icmr_data",
         embedding_model: str = "BAAI/bge-small-en-v1.5",
         gemini_model: str = "gemini-2.5-flash",
-        top_k: int = 10,
+        top_k: int = 5,
         min_questions: int = 5,
-        max_questions: int = 10,
-        confidence_threshold: float = 0.85
+        max_questions: int = 15,
+        confidence_threshold: float = 0.85,
+        mongodb_uri: str = None,
+        mongodb_db_name: str = "medical_conversations_db"
     ):
         """Initialize the diagnostic chatbot with Qdrant and Gemini"""
         logger.info("Initializing ICMR Diagnostic Chatbot...")
@@ -47,6 +103,29 @@ class ICMRDiagnosticChatbot:
         self.min_questions = min_questions
         self.max_questions = max_questions
         self.confidence_threshold = confidence_threshold
+        
+        # Initialize MongoDB for persistent storage
+        self.mongo_client = None
+        self.mongodb_db_name = mongodb_db_name
+        self.use_mongodb = False
+        
+        if mongodb_uri:
+            try:
+                self.mongo_client = MongoClient(mongodb_uri)
+                # Test connection
+                self.mongo_client.admin.command('ping')
+                self.session_states_collection = self.mongo_client[mongodb_db_name]["session_states"]
+                self.use_mongodb = True
+                logger.info("✅ Connected to MongoDB for persistent storage")
+            except Exception as e:
+                logger.warning(f"⚠️  MongoDB connection failed, using in-memory storage: {e}")
+                self.use_mongodb = False
+        
+        # Fallback to in-memory if MongoDB not available
+        if not self.use_mongodb:
+            self.store = {}
+            self.session_states = {}
+            logger.info("Using in-memory storage (not persistent)")
         
         # Initialize Qdrant client
         try:
@@ -57,7 +136,7 @@ class ICMRDiagnosticChatbot:
             
             collection_names = [col.name for col in collections.collections]
             if collection_name not in collection_names:
-                logger.warning(f"⚠️  Collection '{collection_name}' not found. Available: {collection_names}")
+                logger.warning(f"⚠️  Collection '{collection_name}' not found")
             else:
                 logger.info(f"✅ Collection '{collection_name}' found")
         except Exception as e:
@@ -75,7 +154,7 @@ class ICMRDiagnosticChatbot:
         # Initialize Gemini
         google_api_key = os.getenv("GOOGLE_API_KEY")
         if not google_api_key:
-            logger.error("❌ GOOGLE_API_KEY not found in environment variables")
+            logger.error("❌ GOOGLE_API_KEY not found")
             raise ValueError("GOOGLE_API_KEY not found in environment variables.")
         
         try:
@@ -93,12 +172,7 @@ class ICMRDiagnosticChatbot:
             raise
         
         self.top_k = top_k
-        
-        # Session storage
-        self.store = {}
         self.current_session_id = "default_session"
-        self.session_states = {}
-        self._init_session_state(self.current_session_id)
         
         # Build chains
         self._build_chains()
@@ -107,24 +181,88 @@ class ICMRDiagnosticChatbot:
     
     def _init_session_state(self, session_id: str):
         """Initialize state for a new session"""
-        self.session_states[session_id] = {
+        initial_state = {
+            "session_id": session_id,
             "initial_symptoms": [],
             "asked_questions": [],
-            "asked_categories": set(),
+            "asked_categories": [],
             "potential_diseases": [],
             "question_count": 0,
             "current_context": [],
-            "aspects_covered": set(),
+            "aspects_covered": [],
             "disease_evidence": {},
-            "is_concluded": False
+            "is_concluded": False,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
         }
+        
+        if self.use_mongodb:
+            self.session_states_collection.update_one(
+                {"session_id": session_id},
+                {"$set": initial_state},
+                upsert=True
+            )
+        else:
+            self.session_states[session_id] = initial_state
+        
         logger.debug(f"Initialized session state for: {session_id}")
     
-    def get_session_history(self, session_id: str) -> InMemoryChatMessageHistory:
+    def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
         """Get or create chat history for a session"""
-        if session_id not in self.store:
-            self.store[session_id] = InMemoryChatMessageHistory()
-        return self.store[session_id]
+        if self.use_mongodb:
+            return MongoDBChatMessageHistory(session_id, self.mongo_client, self.mongodb_db_name)
+        else:
+            # Fallback to in-memory
+            from langchain_core.chat_history import InMemoryChatMessageHistory
+            if session_id not in self.store:
+                self.store[session_id] = InMemoryChatMessageHistory()
+            return self.store[session_id]
+    
+    def get_state(self, session_id: Optional[str] = None) -> Dict:
+        """Get current session state"""
+        sid = session_id or self.current_session_id
+        
+        if self.use_mongodb:
+            doc = self.session_states_collection.find_one({"session_id": sid})
+            if doc:
+                # Convert sets back from lists
+                if "aspects_covered" in doc and isinstance(doc["aspects_covered"], list):
+                    doc["aspects_covered"] = set(doc["aspects_covered"])
+                if "asked_categories" in doc and isinstance(doc["asked_categories"], list):
+                    doc["asked_categories"] = set(doc["asked_categories"])
+                return doc
+            else:
+                self._init_session_state(sid)
+                return self.get_state(sid)
+        else:
+            if sid not in self.session_states:
+                self._init_session_state(sid)
+            return self.session_states.get(sid, {})
+    
+    def update_state(self, session_id: str, updates: Dict):
+        """Update session state"""
+        if self.use_mongodb:
+            # Convert sets to lists for MongoDB
+            mongo_updates = {}
+            for key, value in updates.items():
+                if isinstance(value, set):
+                    mongo_updates[key] = list(value)
+                else:
+                    mongo_updates[key] = value
+            
+            mongo_updates["updated_at"] = datetime.utcnow()
+            
+            self.session_states_collection.update_one(
+                {"session_id": session_id},
+                {"$set": mongo_updates},
+                upsert=True
+            )
+        else:
+            if session_id in self.session_states:
+                self.session_states[session_id].update(updates)
+    
+    # Keep all other methods the same, but update get_state() calls to also call update_state()
+    # For example, in analyze_symptoms, refine_diagnosis, etc.
     
     def _build_chains(self):
         """Build LangChain chains with message history"""
@@ -232,11 +370,6 @@ OR if providing diagnosis:
             logger.error(f"Error searching Qdrant: {e}")
             return []
     
-    def get_state(self, session_id: Optional[str] = None) -> Dict:
-        """Get current session state"""
-        sid = session_id or self.current_session_id
-        return self.session_states.get(sid, {})
-    
     def determine_next_category(self, state: Dict) -> str:
         """Determine which aspect to ask about next"""
         priority_categories = [
@@ -244,7 +377,10 @@ OR if providing diagnosis:
             "associated", "modifying", "history"
         ]
         
-        covered = state["aspects_covered"]
+        covered = state.get("aspects_covered", [])
+        if isinstance(covered, list):
+            covered = set(covered)
+        
         for category in priority_categories:
             if category not in covered:
                 return category
@@ -253,13 +389,20 @@ OR if providing diagnosis:
     
     def calculate_confidence(self, disease_name: str, state: Dict) -> float:
         """Calculate confidence for a disease"""
-        evidence = state["disease_evidence"].get(disease_name, {})
+        evidence = state.get("disease_evidence", {}).get(disease_name, {})
         base_score = evidence.get("avg_score", 0)
         match_count = evidence.get("match_count", 0)
         
-        # Adjust confidence based on information gathered
-        question_penalty = min(state["question_count"] / self.min_questions, 1.0)
-        aspect_bonus = min(len(state["aspects_covered"]) / 5, 1.0)
+        question_count = state.get("question_count", 0)
+        aspects_covered = state.get("aspects_covered", [])
+        if isinstance(aspects_covered, list):
+            aspects_covered_count = len(aspects_covered)
+        else:
+            aspects_covered_count = len(list(aspects_covered))
+        
+        # Adjust confidence
+        question_penalty = min(question_count / self.min_questions, 1.0)
+        aspect_bonus = min(aspects_covered_count / 5, 1.0)
         consistency_bonus = min(match_count / 4, 1.0)
         
         confidence = (
@@ -290,9 +433,10 @@ OR if providing diagnosis:
                 disease_scores[disease]["scores"].append(result["score"])
                 disease_scores[disease]["sections"].add(result["header"])
         
+        disease_evidence = state.get("disease_evidence", {})
         for disease, data in disease_scores.items():
             avg_score = sum(data["scores"]) / len(data["scores"]) if data["scores"] else 0
-            state["disease_evidence"][disease] = {
+            disease_evidence[disease] = {
                 "avg_score": avg_score,
                 "match_count": len(data["scores"]),
                 "sections": list(data["sections"])
@@ -311,23 +455,31 @@ OR if providing diagnosis:
             reverse=True
         )[:5]
         
-        state["potential_diseases"] = [
-            {"name": d[0], **d[1]} for d in sorted_diseases
-        ]
-        state["current_context"] = results
+        potential_diseases = [{"name": d[0], **d[1]} for d in sorted_diseases]
         
-        return {"candidates": state["potential_diseases"], "context": results}
+        # Update state
+        self.update_state(session_id, {
+            "potential_diseases": potential_diseases,
+            "current_context": results,
+            "disease_evidence": disease_evidence
+        })
+        
+        return {"candidates": potential_diseases, "context": results}
     
     def refine_diagnosis(self, new_info: str, session_id: str) -> None:
         """Refine potential diseases based on new information"""
         state = self.get_state(session_id)
         
-        all_info = " ".join(state["initial_symptoms"]) + " " + new_info
+        initial_symptoms = state.get("initial_symptoms", [])
+        all_info = " ".join(initial_symptoms) + " " + new_info
         
-        # Progressive filtering based on question count
+        question_count = state.get("question_count", 0)
+        potential_diseases = state.get("potential_diseases", [])
+        
+        # Progressive filtering
         filters = None
-        if state["question_count"] > 5 and state["potential_diseases"]:
-            disease_names = [d["name"] for d in state["potential_diseases"][:3]]
+        if question_count > 5 and potential_diseases:
+            disease_names = [d["name"] for d in potential_diseases[:3]]
             filters = {
                 "should": [
                     {"key": "disease", "match": {"value": disease}}
@@ -337,16 +489,18 @@ OR if providing diagnosis:
         
         results = self.search_qdrant(all_info, filters)
         
+        disease_evidence = state.get("disease_evidence", {})
+        
         # Update disease evidence
         for result in results:
             disease = result["disease"]
             if disease:
-                if disease in state["disease_evidence"]:
-                    existing = state["disease_evidence"][disease]
+                if disease in disease_evidence:
+                    existing = disease_evidence[disease]
                     existing["avg_score"] = (existing["avg_score"] + result["score"]) / 2
                     existing["match_count"] += 1
                 else:
-                    state["disease_evidence"][disease] = {
+                    disease_evidence[disease] = {
                         "avg_score": result["score"],
                         "match_count": 1,
                         "sections": [result["header"]]
@@ -354,12 +508,12 @@ OR if providing diagnosis:
         
         # Recalculate top diseases
         disease_confidences = {}
-        for disease in state["disease_evidence"]:
+        for disease in disease_evidence:
             confidence = self.calculate_confidence(disease, state)
             disease_confidences[disease] = {
                 "name": disease,
                 "confidence": confidence * 100,
-                "match_count": state["disease_evidence"][disease]["match_count"]
+                "match_count": disease_evidence[disease]["match_count"]
             }
         
         sorted_diseases = sorted(
@@ -368,60 +522,72 @@ OR if providing diagnosis:
             reverse=True
         )[:3]
         
-        state["potential_diseases"] = [d[1] for d in sorted_diseases]
-        state["current_context"] = results
+        updated_diseases = [d[1] for d in sorted_diseases]
+        
+        # Update state
+        self.update_state(session_id, {
+            "potential_diseases": updated_diseases,
+            "current_context": results,
+            "disease_evidence": disease_evidence
+        })
     
     def generate_response(self, session_id: str) -> Dict:
         """Generate next response (question or diagnosis)"""
         state = self.get_state(session_id)
         
-        # Prepare context from ICMR data
+        # Prepare context
+        current_context = state.get("current_context", [])
         context_text = "\n\n".join([
             f"Disease: {doc['disease']}\n"
             f"Section: {doc['header']}\n"
             f"Content: {doc['text'][:400]}\n"
             f"Relevance: {doc['score']:.2f}"
-            for doc in state["current_context"][:5]
+            for doc in current_context[:5]
         ])
         
+        potential_diseases = state.get("potential_diseases", [])
         candidates = ", ".join([
             f"{d['name']} ({d.get('confidence', 0):.1f}%)"
-            for d in state["potential_diseases"][:3]
+            for d in potential_diseases[:3]
         ])
         
-        asked_questions = "\n".join(state["asked_questions"][-5:])
+        asked_questions = state.get("asked_questions", [])
+        asked_questions_text = "\n".join(asked_questions[-5:])
+        
+        aspects_covered = state.get("aspects_covered", [])
+        if isinstance(aspects_covered, list):
+            aspects_covered = set(aspects_covered)
         
         all_aspects = {"temporal", "severity", "location", "character", "associated", "modifying", "history"}
-        uncovered = all_aspects - state["aspects_covered"]
+        uncovered = all_aspects - aspects_covered
         uncovered_text = ", ".join(uncovered) if uncovered else "All aspects covered"
         
         current_category = self.determine_next_category(state)
+        question_count = state.get("question_count", 0)
         
-        # Generate response with structured output
+        # Generate response
         try:
             response = self.question_with_history.invoke(
                 {
                     "input": "generate next response",
                     "context": context_text if context_text else "No specific ICMR data retrieved yet.",
                     "candidates": candidates if candidates else "Analyzing initial symptoms...",
-                    "asked_questions": asked_questions if asked_questions else "None",
+                    "asked_questions": asked_questions_text if asked_questions_text else "None",
                     "current_category": current_category,
                     "uncovered_aspects": uncovered_text,
-                    "question_count": state["question_count"],
+                    "question_count": question_count,
                     "max_questions": self.max_questions,
                     "min_questions": self.min_questions,
-                    "aspects_covered": len(state["aspects_covered"]),
+                    "aspects_covered": len(aspects_covered),
                     "confidence_threshold": int(self.confidence_threshold * 100)
                 },
                 config={"configurable": {"session_id": session_id}}
             )
             
-            # Validate response structure
             if isinstance(response, dict) and "type" in response and "content" in response:
                 return response
             else:
-                # Fallback if JSON parsing fails
-                logger.warning("Response not in expected format, falling back to question")
+                logger.warning("Response not in expected format")
                 return {
                     "type": "question",
                     "content": "Could you describe the symptoms in more detail?",
@@ -441,16 +607,23 @@ OR if providing diagnosis:
         try:
             sid = session_id or self.current_session_id
             
-            if sid not in self.session_states:
-                self._init_session_state(sid)
-            
             state = self.get_state(sid)
+            
+            # Check if this is a new session
+            if not state or state.get("question_count", 0) == 0:
+                self._init_session_state(sid)
+                state = self.get_state(sid)
+            
             history = self.get_session_history(sid)
             history.add_user_message(user_input)
             
+            question_count = state.get("question_count", 0)
+            
             # First message: analyze symptoms
-            if state["question_count"] == 0:
-                state["initial_symptoms"].append(user_input)
+            if question_count == 0:
+                initial_symptoms = state.get("initial_symptoms", [])
+                initial_symptoms.append(user_input)
+                self.update_state(sid, {"initial_symptoms": initial_symptoms})
                 self.analyze_symptoms(user_input, sid)
             else:
                 # Subsequent messages: refine diagnosis
@@ -460,13 +633,25 @@ OR if providing diagnosis:
             response = self.generate_response(sid)
             
             # Update state based on response type
+            state = self.get_state(sid)  # Refresh state
             if response["type"] == "question":
-                state["question_count"] += 1
-                state["asked_questions"].append(response["content"])
+                question_count = state.get("question_count", 0) + 1
+                asked_questions = state.get("asked_questions", [])
+                asked_questions.append(response["content"])
+                
                 category = self.determine_next_category(state)
-                state["aspects_covered"].add(category)
+                aspects_covered = state.get("aspects_covered", [])
+                if isinstance(aspects_covered, list):
+                    aspects_covered = set(aspects_covered)
+                aspects_covered.add(category)
+                
+                self.update_state(sid, {
+                    "question_count": question_count,
+                    "asked_questions": asked_questions,
+                    "aspects_covered": list(aspects_covered)
+                })
             else:
-                state["is_concluded"] = True
+                self.update_state(sid, {"is_concluded": True})
             
             history.add_ai_message(response["content"])
             logger.info(f"Generated {response['type']} for session {sid}")
@@ -480,10 +665,17 @@ OR if providing diagnosis:
     def reset_session(self, session_id: Optional[str] = None):
         """Reset a specific session"""
         sid = session_id or self.current_session_id
-        if sid in self.store:
-            self.store[sid].clear()
-        if sid in self.session_states:
-            self._init_session_state(sid)
+        
+        history = self.get_session_history(sid)
+        history.clear()
+        
+        if self.use_mongodb:
+            self.session_states_collection.delete_one({"session_id": sid})
+        else:
+            if sid in self.session_states:
+                del self.session_states[sid]
+        
+        self._init_session_state(sid)
     
     def get_conversation_history(self, session_id: Optional[str] = None) -> List[Dict]:
         """Get conversation history for a session"""
@@ -503,18 +695,22 @@ OR if providing diagnosis:
         sid = session_id or self.current_session_id
         state = self.get_state(sid)
         
+        potential_diseases = state.get("potential_diseases", [])
+        disease_evidence = state.get("disease_evidence", {})
+        aspects_covered = state.get("aspects_covered", [])
+        
         return {
-            "questions_asked": state["question_count"],
+            "questions_asked": state.get("question_count", 0),
             "min_required": self.min_questions,
             "max_allowed": self.max_questions,
-            "aspects_covered": list(state["aspects_covered"]),
+            "aspects_covered": list(aspects_covered) if isinstance(aspects_covered, set) else aspects_covered,
             "top_candidates": [
                 {
                     "disease": d["name"],
                     "confidence": d.get("confidence", 0),
-                    "evidence_points": state["disease_evidence"].get(d["name"], {}).get("match_count", 0)
+                    "evidence_points": disease_evidence.get(d["name"], {}).get("match_count", 0)
                 }
-                for d in state["potential_diseases"][:3]
+                for d in potential_diseases[:3]
             ],
             "is_concluded": state.get("is_concluded", False)
         }
@@ -522,7 +718,8 @@ OR if providing diagnosis:
     def set_session(self, session_id: str):
         """Switch to a different session"""
         self.current_session_id = session_id
-        if session_id not in self.session_states:
+        state = self.get_state(session_id)
+        if not state or not state.get("session_id"):
             self._init_session_state(session_id)
     
     def should_conclude(self, session_id: str) -> bool:
