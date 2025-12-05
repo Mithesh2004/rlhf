@@ -271,6 +271,9 @@ class ICMRDiagnosticChatbot:
         self.question_prompt = ChatPromptTemplate.from_messages([
             ("system", """You are an expert medical diagnostician using ICMR clinical guidelines. Your role is to ask ONE targeted question OR provide a final diagnosis.
 
+**PATIENT DEMOGRAPHICS:**
+{patient_demographics}
+
 **CURRENT SITUATION:**
 - Question {question_count}/{max_questions} (Minimum: {min_questions})
 - Aspects covered: {aspects_covered}
@@ -294,7 +297,6 @@ Focus on: {current_category}
 - Use SPECIFIC medical terminology from ICMR data
 - Reference the candidate diseases: {candidates}
 - Ask about aspects NOT covered: {uncovered_aspects}
-- Keep under 25 words
 - Be clinically precise
 
 **RELEVANT ICMR CLINICAL DATA:**
@@ -314,15 +316,16 @@ You MUST respond with ONLY a valid JSON object in this exact format:
 OR if providing diagnosis:
 {{
   "type": "diagnosis",
-  "content": "## Possible Conditions\\n[Full diagnosis with all sections]\\n## Recommended Actions\\n...\\n## Further Evaluation\\n...\\n## Department Referral\\n...\\n## Urgency Level\\n...",
+  "content": "## Possible Conditions\\n[Full diagnosis with all sections]\\n## Recommended Actions\\n...",
   "reasoning": "Sufficient information gathered"
 }}
 
 **CRITICAL**: Your response must be ONLY the JSON object, nothing else."""),
             MessagesPlaceholder(variable_name="history"),
-            ("human", "Based on the patient's input and ICMR data, decide: ask a question OR provide diagnosis. Respond ONLY with JSON.")
+            ("human", "Based on the patient's demographics, input and ICMR data, decide: ask a question OR provide diagnosis. Respond ONLY with JSON.")
         ])
-        
+#   "content": "## Possible Conditions\\n[Full diagnosis with all sections]\\n## Recommended Actions\\n...\\n## Further Evaluation\\n...\\n## Department Referral\\n...\\n## Urgency Level\\n...",
+    
         # Use JsonOutputParser for structured output
         self.question_chain = (
             self.question_prompt
@@ -535,6 +538,11 @@ OR if providing diagnosis:
         """Generate next response (question or diagnosis)"""
         state = self.get_state(session_id)
         
+        # Get patient demographics
+        patient_age = state.get("patient_age", "Unknown")
+        patient_gender = state.get("patient_gender", "Unknown")
+        patient_demographics = f"Patient: {patient_age} year old {patient_gender}"
+        
         # Prepare context
         current_context = state.get("current_context", [])
         context_text = "\n\n".join([
@@ -570,6 +578,7 @@ OR if providing diagnosis:
             response = self.question_with_history.invoke(
                 {
                     "input": "generate next response",
+                    "patient_demographics": patient_demographics,
                     "context": context_text if context_text else "No specific ICMR data retrieved yet.",
                     "candidates": candidates if candidates else "Analyzing initial symptoms...",
                     "asked_questions": asked_questions_text if asked_questions_text else "None",
@@ -602,7 +611,7 @@ OR if providing diagnosis:
                 "reasoning": "Error in generation"
             }
     
-    def chat(self, user_input: str, session_id: Optional[str] = None) -> Dict:
+    def chat(self, user_input: str, session_id: Optional[str] = None, patient_age: Optional[int] = None, patient_gender: Optional[str] = None) -> Dict:
         """Main chat interface - returns structured response"""
         try:
             sid = session_id or self.current_session_id
@@ -613,6 +622,14 @@ OR if providing diagnosis:
             if not state or state.get("question_count", 0) == 0:
                 self._init_session_state(sid)
                 state = self.get_state(sid)
+                
+                # Store patient demographics in session state
+                if patient_age and patient_gender:
+                    self.update_state(sid, {
+                        "patient_age": patient_age,
+                        "patient_gender": patient_gender
+                    })
+    
             
             history = self.get_session_history(sid)
             history.add_user_message(user_input)

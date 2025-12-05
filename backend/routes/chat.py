@@ -35,8 +35,25 @@ async def chat(request: ChatRequest):
         # Generate session ID
         session_id = f"{request.doctor_name}_{request.conversation_id}"
         
-        # Get AI response (structured response with type)
-        ai_response = chatbot.chat(request.message, session_id=session_id)
+        # Get conversation to retrieve patient demographics
+        conversation = ConversationOperations.get_conversation(
+            request.doctor_name,
+            request.conversation_id
+        )
+        
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        patient_age = conversation.get("patient_age")
+        patient_gender = conversation.get("patient_gender")
+        
+        # Get AI response with patient demographics
+        ai_response = chatbot.chat(
+            request.message, 
+            session_id=session_id,
+            patient_age=patient_age,
+            patient_gender=patient_gender
+        )
         
         response_type = ai_response.get("type", "question")
         response_content = ai_response.get("content", "")

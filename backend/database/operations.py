@@ -8,7 +8,7 @@ class ConversationOperations:
     """Database operations for conversations"""
     
     @staticmethod
-    def create_conversation(doctor_name: str, initial_problem: str) -> Dict:
+    def create_conversation(doctor_name: str, initial_problem: str, patient_age: int, patient_gender: str) -> Dict:
         """Create a new conversation"""
         collection = get_conversations_collection()
         
@@ -24,6 +24,8 @@ class ConversationOperations:
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'doctor': doctor_name,
             'initial_problem': initial_problem,
+            'patient_age': patient_age,  # Add this
+            'patient_gender': patient_gender,  # Add this
             'messages': [],
             'is_ended': False,
             'holistic_feedback': {
@@ -41,6 +43,7 @@ class ConversationOperations:
         new_conversation['_id'] = str(result.inserted_id)
         
         return new_conversation
+
     
     @staticmethod
     def get_doctor_conversations(doctor_name: str) -> List[Dict]:

@@ -26,6 +26,8 @@ class Conversation(BaseModel):
     timestamp: str
     doctor: str
     initial_problem: str
+    patient_age: int  # Add this
+    patient_gender: str  # Add this
     messages: List[Message] = []
     is_ended: bool = False
     holistic_feedback: HolisticFeedback
@@ -35,6 +37,9 @@ class Conversation(BaseModel):
 class ConversationCreate(BaseModel):
     doctor_name: str
     initial_problem: str
+    patient_age: int  # Add this
+    patient_gender: str  # Add this
+
 
 
 class MessageAdd(BaseModel):

@@ -8,7 +8,7 @@ load_dotenv()
 class Settings(BaseSettings):
     # MongoDB
     MONGODB_URI: str = os.getenv("MONGODB_URI", "")
-    MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME", "medical_conversations_db")
+    MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME")
     
     # Qdrant
     QDRANT_URL: str = os.getenv("QDRANT_URL", "http://localhost:6333")
@@ -20,9 +20,9 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
     
     # Chatbot Configuration
-    MIN_QUESTIONS: str = os.getenv("MIN_QUESTIONS", "5")
-    MAX_QUESTIONS: str = os.getenv("MAX_QUESTIONS", "10")
-    CONFIDENCE_THRESHOLD: str = os.getenv("CONFIDENCE_THRESHOLD", "0.85")
+    MIN_QUESTIONS: str = os.getenv("MIN_QUESTIONS")
+    MAX_QUESTIONS: str = os.getenv("MAX_QUESTIONS")
+    CONFIDENCE_THRESHOLD: str = os.getenv("CONFIDENCE_THRESHOLD")
     
     # API
     API_HOST: str = "0.0.0.0"

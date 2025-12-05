@@ -5,6 +5,14 @@ from ..utils.api_client import get_api_client
 
 def login_page():
     """Render the login page"""
+    st.html("""
+    <style>
+        [data-testid="stMainBlockContainer"] {
+            max-width: 1000px !important;
+            margin: 0 auto !important;
+        }
+    </style>
+    """)
     st.title("Doctor Session Portal 👨‍⚕️")
     
     # Check API health

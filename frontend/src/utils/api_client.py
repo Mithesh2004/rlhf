@@ -2,7 +2,6 @@ import requests
 from typing import Dict, Optional, List
 import streamlit as st
 
-
 class DiagnosticAPIClient:
     """Client for communicating with the FastAPI backend"""
     
@@ -20,12 +19,17 @@ class DiagnosticAPIClient:
             return {"status": "unhealthy", "error": str(e)}
     
     # Conversation Management
-    def create_conversation(self, doctor_name: str, initial_problem: str) -> Optional[Dict]:
+    def create_conversation(self, doctor_name: str, initial_problem: str, patient_age: int, patient_gender: str) -> Optional[Dict]:
         """Create new conversation via API"""
         try:
             response = self.session.post(
                 f"{self.base_url}/conversations/create",
-                json={"doctor_name": doctor_name, "initial_problem": initial_problem},
+                json={
+                    "doctor_name": doctor_name, 
+                    "initial_problem": initial_problem,
+                    "patient_age": patient_age,
+                    "patient_gender": patient_gender
+                },
                 timeout=10
             )
             response.raise_for_status()
@@ -33,6 +37,8 @@ class DiagnosticAPIClient:
         except Exception as e:
             st.error(f"Failed to create conversation: {e}")
             return None
+
+
     
     def get_doctor_conversations(self, doctor_name: str) -> List[Dict]:
         """Get all conversations for a doctor"""
@@ -275,4 +281,4 @@ class DiagnosticAPIClient:
 @st.cache_resource
 def get_api_client():
     """Get cached API client instance"""
-    return DiagnosticAPIClient(base_url="http://localhost:8000")
+    return DiagnosticAPIClient(base_url="http://localhost:8000")    

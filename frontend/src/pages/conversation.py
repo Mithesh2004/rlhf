@@ -5,6 +5,14 @@ from ..utils.api_client import get_api_client
 
 def conversation_page():
     """Render the conversation management page"""
+    st.html("""
+    <style>
+        [data-testid="stMainBlockContainer"] {
+            max-width: 900px !important;
+            margin: 0 auto !important;
+        }
+    </style>
+    """)
     doctor_name = get_session_state('doctor_name')
     api_client = get_api_client()
     
@@ -41,22 +49,45 @@ def conversation_page():
     
     # Start new conversation section with input
     st.markdown("### 🆕 Start New Conversation")
-    
+
     with st.form("new_conversation_form", clear_on_submit=True):
         initial_problem = st.text_area(
-            "Patient's chief complaint:",
+            "Conversation Topic:",
             placeholder="e.g., Persistent headache",
             height=80
         )
         
+        # Add patient demographics
+        col1, col2 = st.columns(2)
+        with col1:
+            patient_age = st.number_input(
+                "Patient Age:",
+                min_value=0,
+                max_value=120,
+                value=None,
+                placeholder="Enter age"
+            )
+        
+        with col2:
+            patient_gender = st.selectbox(
+                "Patient Gender:",
+                options=["", "Male", "Female"],
+                index=0
+            )
+        
         submit_button = st.form_submit_button("➕ Create Conversation", 
-                                               type="primary", 
-                                               use_container_width=True)
+                                            type="primary", 
+                                            use_container_width=True)
         
         if submit_button:
-            if initial_problem and initial_problem.strip():
-                # Create new conversation via API
-                new_conv = api_client.create_conversation(doctor_name, initial_problem.strip())
+            if initial_problem and initial_problem.strip() and patient_age and patient_gender:
+                # Create new conversation via API with demographics
+                new_conv = api_client.create_conversation(
+                    doctor_name, 
+                    initial_problem.strip(),
+                    patient_age,
+                    patient_gender
+                )
                 
                 if new_conv:
                     st.success(f"✅ Conversation #{new_conv['id']} created!")
@@ -66,7 +97,7 @@ def conversation_page():
                 else:
                     st.error("❌ Failed to create conversation.")
             else:
-                st.warning("⚠️ Please enter a description.")
+                st.warning("⚠️ Please fill in all required fields (complaint, age, gender).")
 
     
     st.markdown("---")

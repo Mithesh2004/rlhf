@@ -15,11 +15,14 @@ async def create_conversation(request: ConversationCreate):
     try:
         conversation = ConversationOperations.create_conversation(
             request.doctor_name,
-            request.initial_problem
+            request.initial_problem,
+            request.patient_age,  # Add this
+            request.patient_gender  # Add this
         )
         return conversation
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.get("/{doctor_name}")

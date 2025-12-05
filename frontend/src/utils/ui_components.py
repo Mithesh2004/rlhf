@@ -27,5 +27,5 @@ def setup_page_config():
     st.set_page_config(
         page_title="Doctor Session Portal",
         page_icon="👨‍⚕️",
-        layout="centered"
+        layout="wide"
     )
